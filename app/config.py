@@ -3,7 +3,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    GEMINI_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    ONET_USERNAME: str = ""
+    ONET_PASSWORD: str = ""
     DATABASE_URL: str = "postgresql+asyncpg://postgres:password@localhost:5432/transferats"
 
     model_config = {"env_file": ".env"}

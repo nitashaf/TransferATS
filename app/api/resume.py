@@ -6,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.resume import Resume
-from app.services.gemini import extract_skills, get_embeddings
+from app.services.gemini import get_embeddings
+from app.services.groq_service import extract_skills
 from app.services.parser import parse_resume
 
 router = APIRouter()

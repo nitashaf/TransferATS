@@ -2,7 +2,7 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from app.services.gemini import analyze_transferable_skills
+from app.services import groq_service, onet
 
 
 def _cosine_similarity(vec1: List[float], vec2: List[float]) -> float:
@@ -45,21 +45,25 @@ async def match_resume_to_job(
     # Layer 1: ATS exact keyword matching (40% weight)
     ats, matched_skills, missing_skills = _ats_score(resume_skills, job_skills)
 
-    # Layer 2: Semantic similarity via embeddings (40% weight)
+    # Layer 2: Semantic similarity via Gemini embeddings (40% weight)
     semantic = (
         _cosine_similarity(resume_embeddings, job_embeddings)
         if resume_embeddings and job_embeddings
         else 0.0
     )
-    # Clamp to [0, 1] — cosine can be slightly negative for unrelated texts
     semantic = max(0.0, min(1.0, semantic))
 
-    # Layer 3: Transferable skills via Gemini (20% weight)
-    transferable_data = {"transferable_skills": []}
+    # Layer 3: O*NET transferable skills with Groq fallback (20% weight)
+    transferable_data: Dict = {"transferable_skills": []}
     if missing_skills:
-        transferable_data = await analyze_transferable_skills(
-            resume_content, job_description, missing_skills
+        transferable_data = await onet.find_transferable_skills_async(
+            resume_skills, missing_skills
         )
+        if not transferable_data.get("transferable_skills"):
+            transferable_data = await groq_service.analyze_transferable_skills(
+                resume_content, job_description, missing_skills
+            )
+
     transferable_skills = transferable_data.get("transferable_skills", [])
     transferable = _transferable_score(transferable_skills)
 

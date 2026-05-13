@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.job import Job
 from app.schemas.job import JobCreate
-from app.services.gemini import extract_job_details, extract_skills, get_embeddings
+from app.services.gemini import get_embeddings
+from app.services.groq_service import extract_job_details, extract_skills
 from app.services.scraper import scrape_job_url
 
 router = APIRouter()
