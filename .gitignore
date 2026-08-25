@@ -1,5 +1,8 @@
-.env 
-__pycache__/ 
-*.pyc 
-.claude/ 
-"Nitasha - Montana State University/" 
+.env
+.venv/
+__pycache__/
+*.py[cod]
+.claude/
+"Nitasha - Montana State University/"
+frontend/node_modules/
+frontend/dist/

@@ -39,7 +39,7 @@ async def create_job(job_data: JobCreate, db: AsyncSession = Depends(get_db)):
 
     # ── Mode 2: raw text ─────────────────────────────────────────────────────
     elif job_data.raw_text:
-        extracted = await extract_job_details(job_data.raw_text)
+        extracted = await extract_job_details(job_data.raw_text) or {}
         title = title or extracted.get("title") or "Untitled Position"
         description = description or extracted.get("description") or job_data.raw_text[:1000]
         required_skills = _merge(required_skills, extracted.get("required_skills", []))
@@ -48,8 +48,7 @@ async def create_job(job_data: JobCreate, db: AsyncSession = Depends(get_db)):
 
     # ── Mode 1: manual JSON ───────────────────────────────────────────────────
     else:
-        extracted = await extract_skills(description)
-        required_skills = _merge(required_skills, extracted.get("skills", []))
+        pass
 
     embeddings = await get_embeddings(description)
 

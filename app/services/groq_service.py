@@ -1,17 +1,25 @@
+"""
+Extraction Service — uses Ollama for resume extraction
+and Claude for job description extraction.
+
+Ollama: fast, free, good for structured resume text
+Claude: handles any job description format and length
+"""
 import asyncio
 import json
 import re
 from typing import Any, Dict, List
 
-from groq import Groq
-
+import httpx
 from app.config import get_settings
+from app.services.claude_client import call_claude
 
 settings = get_settings()
-_client = Groq(api_key=settings.GROQ_API_KEY)
+_OLLAMA_URL = "http://localhost:11434/api/chat"
+_OLLAMA_MODEL = "llama3.2"
 
-_MODEL = "llama-3.1-8b-instant"
 
+# ─── JSON Utilities ───────────────────────────────────────────────────────────
 
 def _clean_json(text: str) -> str:
     text = text.strip()
@@ -23,6 +31,8 @@ def _clean_json(text: str) -> str:
         text = text[:-3]
     return text.strip()
 
+
+# ─── Fallback utilities (when LLM fails) ─────────────────────────────────────
 
 def _extract_skills_fallback(text: str) -> List[str]:
     known_skills = [
@@ -59,29 +69,58 @@ def _estimate_experience_years_fallback(text: str) -> float | None:
     return None
 
 
-def _sync_extract_skills(text: str) -> Dict[str, Any]:
-    prompt = f"""Extract structured information from this resume or job description text.
+# ─── Ollama client ────────────────────────────────────────────────────────────
 
-Text:
+def _ollama_call(prompt: str) -> str:
+    """Call local Ollama for resume extraction."""
+    response = httpx.post(
+        _OLLAMA_URL,
+        json={
+            "model": _OLLAMA_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "options": {"temperature": 0.1}
+        },
+        timeout=180.0
+    )
+    response.raise_for_status()
+    return response.json()["message"]["content"]
+
+
+# ─── Resume extraction (Ollama) ───────────────────────────────────────────────
+
+def _sync_extract_skills(text: str) -> Dict[str, Any]:
+    """
+    Extract skills from resume using Ollama.
+    Ollama works well for resume text — structured, consistent format.
+    Full text passed — no truncation for better coverage.
+    """
+    prompt = f"""Extract ALL technical and professional skills from this resume.
+
+Resume:
 {text[:6000]}
 
-Return ONLY a valid JSON object (no markdown, no explanation) with these fields:
+Return ONLY valid JSON, no markdown:
 {{
-  "skills": ["list", "of", "technical", "and", "soft", "skills"],
-  "name": "candidate full name or null",
-  "email": "email address or null",
-  "experience_years": estimated years of experience as number or null
-}}"""
+  "skills": ["skill1", "skill2", ...],
+  "name": "full name or null",
+  "email": "email or null",
+  "experience_years": number or null
+}}
+
+Rules:
+- Extract EVERY skill mentioned
+- Include: languages, frameworks, databases, cloud, tools, methodologies
+- Keep atomic and lowercase: "spring boot" not "spring boot framework"
+- Include soft skills if explicitly mentioned
+- Extract at least 20-40 skills from a senior resume
+- Examples: java, spring boot, aws, kafka, postgresql, docker, kubernetes"""
 
     try:
-        response = _client.chat.completions.create(
-            model=_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=1024,
-        )
-        return json.loads(_clean_json(response.choices[0].message.content))
-    except Exception:
+        content = _ollama_call(prompt)
+        return json.loads(_clean_json(content))
+    except Exception as e:
+        print(f"[Ollama Resume Extract ERROR] {e}")
         return {
             "skills": _extract_skills_fallback(text),
             "name": _extract_name_fallback(text),
@@ -90,40 +129,61 @@ Return ONLY a valid JSON object (no markdown, no explanation) with these fields:
         }
 
 
+# ─── Job extraction (Claude) ──────────────────────────────────────────────────
+
 def _sync_extract_job_details(text: str) -> Dict[str, Any]:
-    prompt = f"""Extract structured job posting information from this text.
+    """
+    Extract skills from job description using Claude.
+    Claude handles any format, length, and writing style.
+    No text truncation needed — Claude has 200k context window.
+    """
+    prompt = f"""Extract structured information from this job posting.
+Handle any format — explicit skills lists, embedded requirements,
+or descriptions without clear sections.
 
-Text:
-{text[:6000]}
+Job Posting:
+{text}
 
-Return ONLY a valid JSON object (no markdown, no explanation) with these fields:
+Return ONLY valid JSON, no markdown:
 {{
-  "title": "job title string",
-  "description": "clean 2-4 sentence summary of the role",
-  "required_skills": ["must-have", "technical", "and", "soft", "skills"],
-  "nice_to_have_skills": ["preferred", "but", "not", "required", "skills"]
-}}"""
+  "title": "exact job title",
+  "description": "2-3 sentence summary of the role",
+  "required_skills": ["atomic", "skills", "only"],
+  "nice_to_have_skills": ["atomic", "skills", "only"]
+}}
+
+Rules:
+- Extract specific named skills regardless of how described
+- "experience with Java" → "java"
+- "must know SQL" → "sql"
+- "ability to debug" → "debugging"
+- "strong communicator" → "communication"
+- "2+ years leadership" → "leadership"
+- NEVER extract vague phrases:
+  "modern frameworks" ❌
+  "cloud platforms" ❌  
+  "various tools" ❌
+- Keep all skills lowercase and atomic
+- required_skills: must-have, required, essential
+- nice_to_have_skills: preferred, bonus, plus, desired"""
 
     try:
-        response = _client.chat.completions.create(
-            model=_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=1024,
-        )
-        return json.loads(_clean_json(response.choices[0].message.content))
-    except Exception:
-        return {
-            "title": None,
-            "description": text[:500],
-            "required_skills": _extract_skills_fallback(text),
-            "nice_to_have_skills": [],
-        }
+        content = call_claude(prompt, max_tokens=1000)
+        return json.loads(_clean_json(content))
+    except Exception as e:
+        print(f"[Claude Job Extract ERROR] {e}")
+        return {}
 
+
+# ─── Transferable skills analysis (Ollama) ───────────────────────────────────
 
 def _sync_analyze_transferable(
     resume_text: str, job_description: str, missing_skills: List[str]
 ) -> Dict[str, Any]:
+    """
+    Analyze transferable skills using Ollama.
+    Only called for skills LLM Judge marked as NOT_MET.
+    """
     prompt = f"""You are an expert career counselor analyzing transferable skills.
 
 Resume (excerpt):
@@ -134,8 +194,10 @@ Job Description (excerpt):
 
 Missing Required Skills: {", ".join(missing_skills)}
 
-For each missing skill, determine if the candidate has related transferable experience from their background.
-Return ONLY a valid JSON object (no markdown):
+For each missing skill, determine if the candidate has related 
+transferable experience from their background.
+
+Return ONLY valid JSON, no markdown:
 {{
   "transferable_skills": [
     {{
@@ -148,16 +210,14 @@ Return ONLY a valid JSON object (no markdown):
 }}"""
 
     try:
-        response = _client.chat.completions.create(
-            model=_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=1024,
-        )
-        return json.loads(_clean_json(response.choices[0].message.content))
-    except Exception:
+        content = _ollama_call(prompt)
+        return json.loads(_clean_json(content))
+    except Exception as e:
+        print(f"[Ollama Transferable ERROR] {e}")
         return {"transferable_skills": []}
 
+
+# ─── Async wrappers ───────────────────────────────────────────────────────────
 
 async def extract_skills(text: str) -> Dict[str, Any]:
     return await asyncio.to_thread(_sync_extract_skills, text)
