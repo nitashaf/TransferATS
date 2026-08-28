@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,6 +52,24 @@ async def upload_resume(
         "created_at": resume.created_at,
     }
 
+@router.get("/list", summary="List all resumes")
+async def list_resumes(
+    limit: int = Query(default=50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),):
+    result = await db.execute(
+        select(Resume).order_by(Resume.created_at.desc()).limit(limit))
+    resumes = result.scalars().all()
+    return [
+        {
+            "id": str(r.id),
+            "filename": r.filename,
+            "candidate_name": r.candidate_name,
+            "email": r.email,
+            "skill_count": len(r.parsed_skills or []),
+            "created_at": r.created_at,
+        }
+        for r in resumes
+    ]
 
 @router.get("/{resume_id}", summary="Get a resume by ID")
 async def get_resume(resume_id: str, db: AsyncSession = Depends(get_db)):
@@ -73,6 +91,8 @@ async def get_resume(resume_id: str, db: AsyncSession = Depends(get_db)):
         "skills": resume.parsed_skills,
         "created_at": resume.created_at,
     }
+
+
 
 
 async def _gather(content: str):

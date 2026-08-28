@@ -6,3 +6,5 @@ __pycache__/
 "Nitasha - Montana State University/"
 frontend/node_modules/
 frontend/dist/
+*_bk.py
+*.bak

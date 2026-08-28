@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.database import init_db
-from app.api import resume, job, match, candidates
+from app.api import candidates, job, match, organization, resume
 
 
 @asynccontextmanager
@@ -36,6 +36,7 @@ app.include_router(resume.router, prefix="/api/resume", tags=["Resume"])
 app.include_router(job.router, prefix="/api/job", tags=["Job"])
 app.include_router(match.router, prefix="/api/match", tags=["Match"])
 app.include_router(candidates.router, prefix="/api/candidates", tags=["Candidates"])
+app.include_router(organization.router, prefix="/api/organizations", tags=["Organizations"])
 
 
 @app.get("/", tags=["Health"])

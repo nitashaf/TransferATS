@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -31,6 +31,36 @@ async def match(request: MatchRequest, db: AsyncSession = Depends(get_db)):
     if not job:
         raise HTTPException(status_code=404, detail="Job not found.")
 
+    # Serialize the same resume/job pair so concurrent requests do not both
+    # call the external matching services before either one writes the cache.
+    await db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:cache_key, 0))"),
+        {"cache_key": f"{rid}:{jid}"},
+    )
+
+    # ── Check cache first ────────────────────────────────────────────────────
+    existing = await db.execute(
+        select(Match)
+        .where(Match.resume_id == rid)
+        .where(Match.job_id == jid)
+        .order_by(Match.created_at.desc())
+        .limit(1)
+    )
+    existing_match = existing.scalar_one_or_none()
+
+    if existing_match and existing_match.details:
+        # Return cached result — no LLM call!
+        return {
+            "match_id": str(existing_match.id),
+            "resume_id": request.resume_id,
+            "job_id": request.job_id,
+            "candidate_name": resume.candidate_name,
+            "job_title": job.title,
+            "cached": True,
+            **existing_match.details
+        }
+
+    # ── No cache — run full pipeline ─────────────────────────────────────────
     scores = await match_resume_to_job(
         resume_content=resume.content,
         resume_skills=resume.parsed_skills or [],
@@ -50,7 +80,7 @@ async def match(request: MatchRequest, db: AsyncSession = Depends(get_db)):
         matched_skills=scores["matched_skills"],
         missing_skills=scores["missing_skills"],
         transferable_skills=scores["transferable_skills"],
-        details=scores,
+        details=scores,  # ← store FULL result including LLM evaluations
     )
     db.add(match_record)
     await db.commit()
@@ -62,5 +92,6 @@ async def match(request: MatchRequest, db: AsyncSession = Depends(get_db)):
         "job_id": request.job_id,
         "candidate_name": resume.candidate_name,
         "job_title": job.title,
+        "cached": False,
         **scores,
     }

@@ -3,6 +3,7 @@ from pydantic import BaseModel, model_validator
 
 
 class JobCreate(BaseModel):
+    organization_id: Optional[str] = None
     # Mode 1 – manual JSON
     title: Optional[str] = None
     description: Optional[str] = None

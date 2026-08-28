@@ -1,12 +1,13 @@
 import asyncio
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.job import Job
+from app.models.organization import Organization
 from app.schemas.job import JobCreate
 from app.services.gemini import get_embeddings
 from app.services.groq_service import extract_job_details, extract_skills
@@ -17,6 +18,18 @@ router = APIRouter()
 
 @router.post("/create", summary="Create a job — supports manual JSON, raw text, or a URL")
 async def create_job(job_data: JobCreate, db: AsyncSession = Depends(get_db)):
+    if job_data.organization_id:
+        try:
+            organization = await db.scalar(
+                select(Organization).where(Organization.id == uuid.UUID(job_data.organization_id))
+            )
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid organization ID format.")
+    else:
+        organization = await db.scalar(select(Organization).where(Organization.slug == "neuroforge"))
+    if not organization:
+        raise HTTPException(status_code=404, detail="Organization not found.")
+
     title = job_data.title
     description = job_data.description
     required_skills: list[str] = list(job_data.required_skills or [])
@@ -53,6 +66,7 @@ async def create_job(job_data: JobCreate, db: AsyncSession = Depends(get_db)):
     embeddings = await get_embeddings(description)
 
     job = Job(
+        organization_id=organization.id,
         title=title,
         description=description,
         required_skills=required_skills,
@@ -66,6 +80,7 @@ async def create_job(job_data: JobCreate, db: AsyncSession = Depends(get_db)):
     return {
         "id": str(job.id),
         "title": job.title,
+        "organization_id": str(job.organization_id),
         "source": source,
         "required_skills": job.required_skills,
         "nice_to_have_skills": job.nice_to_have_skills,
@@ -73,6 +88,31 @@ async def create_job(job_data: JobCreate, db: AsyncSession = Depends(get_db)):
         "created_at": job.created_at,
     }
 
+@router.get("/list", summary="List all jobs")
+async def list_jobs(
+    limit: int = Query(default=50, ge=1, le=200),
+    organization_id: str | None = Query(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    statement = select(Job).order_by(Job.created_at.desc()).limit(limit)
+    if organization_id:
+        try:
+            statement = statement.where(Job.organization_id == uuid.UUID(organization_id))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid organization ID format.")
+    result = await db.execute(statement)
+    jobs = result.scalars().all()
+    return [
+        {
+            "id": str(j.id),
+            "title": j.title,
+            "organization_id": str(j.organization_id),
+            "source": "manual",
+            "skill_count": len(j.required_skills or []),
+            "created_at": j.created_at,
+        }
+        for j in jobs
+    ]
 
 @router.get("/{job_id}", summary="Get a job by ID")
 async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
@@ -89,6 +129,7 @@ async def get_job(job_id: str, db: AsyncSession = Depends(get_db)):
     return {
         "id": str(job.id),
         "title": job.title,
+        "organization_id": str(job.organization_id),
         "required_skills": job.required_skills,
         "nice_to_have_skills": job.nice_to_have_skills,
         "created_at": job.created_at,
