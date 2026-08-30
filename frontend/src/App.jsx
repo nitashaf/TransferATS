@@ -65,10 +65,6 @@ function getEvaluationTone(status) {
 }
 
 function App() {
-  const [organizations, setOrganizations] = useState([])
-  const [selectedOrganizationId, setSelectedOrganizationId] = useState('')
-  const [organizationDashboard, setOrganizationDashboard] = useState(null)
-  const [dashboardLoading, setDashboardLoading] = useState(false)
   const [resumeFile, setResumeFile] = useState(null)
   const [resumeLoading, setResumeLoading] = useState(false)
   const [resumeResult, setResumeResult] = useState(null)
@@ -101,38 +97,18 @@ function App() {
   useEffect(() => {
     const loadExisting = async () => {
       try {
-        const [resumesData, jobsData, organizationsData] = await Promise.all([
+        const [resumesData, jobsData] = await Promise.all([
           apiRequest('/api/resume/list'),
           apiRequest('/api/job/list'),
-          apiRequest('/api/organizations'),
         ])
         setResumes(resumesData || [])
         setJobs(jobsData || [])
-        setOrganizations(organizationsData || [])
-        const neuroforge = (organizationsData || []).find((item) => item.slug === 'neuroforge')
-        setSelectedOrganizationId(neuroforge?.id || organizationsData?.[0]?.id || '')
       } catch (error) {
         console.error('Failed to load existing data:', error)
       }
     }
     loadExisting()
   }, [])
-
-  useEffect(() => {
-    if (!selectedOrganizationId) return
-    const loadDashboard = async () => {
-      setDashboardLoading(true)
-      try {
-        const data = await apiRequest(`/api/organizations/${selectedOrganizationId}/dashboard`)
-        setOrganizationDashboard(data)
-      } catch (error) {
-        setApiError(error.message)
-      } finally {
-        setDashboardLoading(false)
-      }
-    }
-    loadDashboard()
-  }, [selectedOrganizationId])
 
   const setSuccess = (message) => {
     setSuccessMessage(message)
@@ -194,7 +170,6 @@ function App() {
       let payload = {}
       if (jobMode === 'manual') {
         payload = {
-          organization_id: selectedOrganizationId,
           title: jobForm.title,
           description: jobForm.description,
           required_skills: parseSkillList(jobForm.required_skills),
@@ -202,14 +177,12 @@ function App() {
         }
       } else if (jobMode === 'raw_text') {
         payload = {
-          organization_id: selectedOrganizationId,
           raw_text: jobForm.raw_text,
           title: jobForm.title || undefined,
           description: jobForm.description || undefined,
         }
       } else {
         payload = {
-          organization_id: selectedOrganizationId,
           url: jobForm.url,
           title: jobForm.title || undefined,
           description: jobForm.description || undefined,
@@ -226,8 +199,6 @@ function App() {
       setJobs((prev) => [data, ...prev.filter((item) => item.id !== data.id)])
       setSelectedJobId(data.id)
       setSuccess('Job created successfully.')
-      const dashboard = await apiRequest(`/api/organizations/${selectedOrganizationId}/dashboard`)
-      setOrganizationDashboard(dashboard)
     } catch (error) {
       setApiError(error.message)
     } finally {
@@ -254,8 +225,6 @@ function App() {
         }),
       })
       setMatchResult(data)
-      const dashboard = await apiRequest(`/api/organizations/${selectedOrganizationId}/dashboard`)
-      setOrganizationDashboard(dashboard)
       setSuccess(data.cached ? 'Loaded cached match.' : 'Match completed successfully.')
     } catch (error) {
       setApiError(error.message)
@@ -289,66 +258,12 @@ function App() {
           <h1>TransferATS Dashboard</h1>
           <p>Upload resumes, create jobs, and visualize candidate-job match quality.</p>
         </div>
-        <label className="organization-picker">
-          Organization
-          <select
-            value={selectedOrganizationId}
-            onChange={(event) => setSelectedOrganizationId(event.target.value)}
-          >
-            {organizations.map((organization) => (
-              <option key={organization.id} value={organization.id}>{organization.name}</option>
-            ))}
-          </select>
-        </label>
       </header>
 
       {apiError ? <div className="error-banner">{apiError}</div> : null}
       {successMessage ? <div className="success-banner">{successMessage}</div> : null}
 
       <main className="grid">
-        <section className="card full-width organization-dashboard">
-          <div className="split-header">
-            <div>
-              <p className="eyebrow">Organization workspace</p>
-              <h2>{organizationDashboard?.organization?.name || 'Jobs & candidate rankings'}</h2>
-            </div>
-            {dashboardLoading ? <LoadingSpinner /> : null}
-          </div>
-          {!dashboardLoading && (organizationDashboard?.jobs || []).length === 0 ? (
-            <p className="muted">No jobs yet. Create the first job for this organization below.</p>
-          ) : (
-            <div className="job-board">
-              {(organizationDashboard?.jobs || []).map((job) => (
-                <article className="job-panel" key={job.id}>
-                  <div className="job-panel-header">
-                    <div><h3>{job.title}</h3><span>{job.candidate_count} ranked candidates</span></div>
-                    <button type="button" className="select-job" onClick={() => setSelectedJobId(job.id)}>
-                      Select job
-                    </button>
-                  </div>
-                  {job.candidates.length === 0 ? (
-                    <p className="muted">No matched resumes yet.</p>
-                  ) : (
-                    <div className="ranking-list">
-                      {job.candidates.map((candidate) => (
-                        <div className="ranking-row" key={candidate.match_id}>
-                          <strong className="rank">#{candidate.rank}</strong>
-                          <div className="candidate-identity">
-                            <strong>{candidate.candidate_name || 'Unknown candidate'}</strong>
-                            <span>{candidate.email || candidate.filename}</span>
-                          </div>
-                          <span className={`dashboard-score ${getScoreTone(candidate.overall_score)}`}>
-                            {Number(candidate.overall_score).toFixed(1)}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
         <section className="card">
           <h2>1) Resume Upload</h2>
           <form onSubmit={onUploadResume} className="stack">

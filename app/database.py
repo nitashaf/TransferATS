@@ -24,25 +24,13 @@ async def init_db():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        # Additive compatibility migration for databases created before organizations.
-        await conn.execute(text("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS organization_id UUID"))
+        # Keep databases previously used by the organization branch compatible
+        # without deleting their tenant metadata.
         await conn.execute(text(
-            "INSERT INTO organizations (id, name, slug) "
-            "SELECT gen_random_uuid(), 'NeuroForge', 'neuroforge' "
-            "WHERE NOT EXISTS (SELECT 1 FROM organizations WHERE slug = 'neuroforge')"
-        ))
-        await conn.execute(text(
-            "UPDATE jobs SET organization_id = "
-            "(SELECT id FROM organizations WHERE slug = 'neuroforge') "
-            "WHERE organization_id IS NULL"
-        ))
-        await conn.execute(text("ALTER TABLE jobs ALTER COLUMN organization_id SET NOT NULL"))
-        await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_jobs_organization_id ON jobs (organization_id)"))
-        await conn.execute(text(
-            "DO $$ BEGIN "
-            "IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fk_jobs_organization_id') THEN "
-            "ALTER TABLE jobs ADD CONSTRAINT fk_jobs_organization_id "
-            "FOREIGN KEY (organization_id) REFERENCES organizations(id); "
+            "DO $$ BEGIN IF EXISTS ("
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'jobs' AND column_name = 'organization_id'"
+            ") THEN ALTER TABLE jobs ALTER COLUMN organization_id DROP NOT NULL; "
             "END IF; END $$"
         ))
         await conn.execute(text(
