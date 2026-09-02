@@ -40,7 +40,7 @@ jobs:
           parameters=$(jq -cn --arg sha "$DEPLOY_SHA" '{commands:[
             "set -euo pipefail",
             "cd /home/ubuntu/TransferATS",
-            "test -z \"$(git status --porcelain --untracked-files=no)\" || { echo \"Deployment refused: tracked production files have uncommitted changes.\"; git status --short; exit 20; }",
+            "test -z \"$(sudo -u ubuntu git status --porcelain --untracked-files=no)\" || { echo \"Deployment refused: tracked production files have uncommitted changes.\"; sudo -u ubuntu git status --short; exit 20; }",
             "sudo -u ubuntu git fetch --prune origin main",
             "sudo -u ubuntu git checkout --detach \"" + $sha + "\"",
             "sudo -u ubuntu /home/ubuntu/TransferATS/venv/bin/python -m pip install --requirement requirements.txt",
