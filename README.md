@@ -4,6 +4,24 @@ TransferATS is a FastAPI backend with a React/Vite frontend. The backend stores 
 
 Production: <https://transferats.neuroforge-sol.com/>
 
+## Continuous deployment
+
+GitHub Actions runs backend and frontend checks for pull requests and pushes to
+`main`. After CI succeeds on `main`, the production workflow authenticates to AWS
+with GitHub OIDC and deploys to the EC2 instance through Systems Manager. The
+workflow does not use stored AWS access keys or the EC2 SSH private key.
+
+Production deployment requires:
+
+- an EC2 instance profile that includes `AmazonSSMManagedInstanceCore`;
+- a GitHub OIDC IAM role allowed to send commands to the production instance;
+- the IAM role ARN stored as the `AWS_DEPLOY_ROLE_ARN` variable in the GitHub
+  `production` environment; and
+- a clean tracked worktree at `/home/ubuntu/TransferATS` on the server.
+
+Deployment deliberately stops if tracked files have uncommitted changes. Commit
+or otherwise preserve production-only edits before enabling the workflow.
+
 ## Quick start
 
 Open Docker Desktop, then run these commands from the repository root.
