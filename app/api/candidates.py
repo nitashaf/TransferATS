@@ -41,6 +41,7 @@ async def get_candidates(
 
     candidates = []
     for rank, (match, resume) in enumerate(rows, start=1):
+        details = match.details or {}
         candidates.append({
             "rank": rank,
             "match_id": str(match.id),
@@ -51,12 +52,17 @@ async def get_candidates(
             "scores": {
                 "overall": match.overall_score,
                 "ats": match.ats_score,
+                "llm_judge": details.get("llm_judge_score", 0.0),
                 "semantic": match.semantic_score,
                 "transferable": match.transferable_score,
             },
             "matched_skills": match.matched_skills,
             "missing_skills": match.missing_skills,
             "transferable_skills": match.transferable_skills,
+            "hiring_recommendation": details.get("hiring_recommendation"),
+            "overall_assessment": details.get("overall_assessment"),
+            "llm_evaluations": details.get("llm_evaluations", []),
+            "created_at": match.created_at.isoformat() if match.created_at else None,
         })
 
     return {

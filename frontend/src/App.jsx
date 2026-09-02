@@ -1,5 +1,5 @@
 import './App.css'
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000'
 
@@ -64,6 +64,78 @@ function getEvaluationTone(status) {
   return 'not-met'
 }
 
+function MatchDetails({ result, compact = false }) {
+  return (
+    <div className={compact ? 'match-details compact' : 'match-details'}>
+      <div className="score-grid">
+        <ScoreBar label="Overall Score" value={result.overall_score ?? result.scores?.overall} />
+        <ScoreBar label="ATS Score" value={result.ats_score ?? result.scores?.ats} />
+        <ScoreBar label="LLM Judge Score" value={result.llm_judge_score ?? result.scores?.llm_judge} />
+        <ScoreBar label="Semantic Score" value={result.semantic_score ?? result.scores?.semantic} />
+        <ScoreBar label="Transferable Score" value={result.transferable_score ?? result.scores?.transferable} />
+      </div>
+
+      <div className="judge-summary">
+        <div className="recommendation-row">
+          <h4>LLM Judgment</h4>
+          <span className={`recommendation recommendation-${String(result.hiring_recommendation || 'MAYBE').toLowerCase()}`}>
+            {formatLabel(result.hiring_recommendation || 'MAYBE')}
+          </span>
+        </div>
+        <p className={result.overall_assessment ? '' : 'muted'}>
+          {result.overall_assessment || 'No overall LLM assessment was returned.'}
+        </p>
+      </div>
+
+      {(result.llm_evaluations || []).length > 0 && (
+        <div className="evaluation-list">
+          <h4>Requirement-by-requirement judgment</h4>
+          {result.llm_evaluations.map((evaluation, index) => (
+            <article className="evaluation-item" key={`${evaluation.skill || 'requirement'}-${index}`}>
+              <div className="evaluation-header">
+                <strong>{evaluation.skill || 'Unnamed requirement'}</strong>
+                <span className={`evaluation-status ${getEvaluationTone(evaluation.status)}`}>
+                  {formatLabel(evaluation.status || 'NOT_MET')}
+                </span>
+              </div>
+              {evaluation.explanation && <p>{evaluation.explanation}</p>}
+              {evaluation.evidence && <blockquote>Evidence: “{evaluation.evidence}”</blockquote>}
+              {evaluation.confidence && <small className="muted">Confidence: {formatLabel(evaluation.confidence)}</small>}
+            </article>
+          ))}
+        </div>
+      )}
+
+      <div className="skills-grid">
+        {[
+          ['Matched Skills', result.matched_skills, 'matched'],
+          ['Missing Skills', result.missing_skills, 'missing'],
+        ].map(([title, skills, tone]) => (
+          <div key={title}>
+            <h4>{title}</h4>
+            <div className="chip-group">
+              {(skills || []).length ? skills.map((skill) => <span key={`${tone}-${skill}`} className={`skill-chip ${tone}`}>{skill}</span>) : <span className="muted">None detected.</span>}
+            </div>
+          </div>
+        ))}
+        <div>
+          <h4>Transferable Skills</h4>
+          <div className="transferable-list">
+            {(result.transferable_skills || []).length ? result.transferable_skills.map((item, index) => (
+              <div className="transferable-item" key={`${item.missing_skill || item.skill || index}-${index}`}>
+                <strong>{item.missing_skill || item.skill || 'Transferable skill'}</strong>
+                {item.transferable_from && <span> from {item.transferable_from}</span>}
+                {item.confidence && <span className="muted"> ({formatLabel(item.confidence)} confidence)</span>}
+                {(item.explanation || item.reason) && <p>{item.explanation || item.reason}</p>}
+              </div>
+            )) : <span className="muted">None detected.</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function App() {
   const [resumeFile, setResumeFile] = useState(null)
   const [resumeLoading, setResumeLoading] = useState(false)
@@ -90,6 +162,7 @@ function App() {
 
   const [candidatesLoading, setCandidatesLoading] = useState(false)
   const [candidates, setCandidates] = useState([])
+  const [expandedMatchId, setExpandedMatchId] = useState(null)
   const [apiError, setApiError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
 
@@ -198,6 +271,9 @@ function App() {
       setJobResult(data)
       setJobs((prev) => [data, ...prev.filter((item) => item.id !== data.id)])
       setSelectedJobId(data.id)
+      setMatchResult(null)
+      setCandidates([])
+      setExpandedMatchId(null)
       setSuccess('Job created successfully.')
     } catch (error) {
       setApiError(error.message)
@@ -250,6 +326,25 @@ function App() {
       setCandidatesLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!selectedJobId) return
+
+    let cancelled = false
+    const loadPreviousScores = async () => {
+      setCandidatesLoading(true)
+      try {
+        const data = await apiRequest(`/api/candidates/${selectedJobId}?limit=25&min_score=0`)
+        if (!cancelled) setCandidates(data.candidates || [])
+      } catch (error) {
+        if (!cancelled) setApiError(error.message)
+      } finally {
+        if (!cancelled) setCandidatesLoading(false)
+      }
+    }
+    loadPreviousScores()
+    return () => { cancelled = true }
+  }, [selectedJobId, matchResult?.match_id])
 
   return (
     <div className="app-shell">
@@ -393,14 +488,17 @@ function App() {
           ) : null}
         </section>
 
-        <section className="card">
+        <section className={`card match-card ${matchResult ? 'full-width' : ''}`}>
           <h2>3) Match & Scores</h2>
           <form onSubmit={onRunMatch} className="stack">
             <label>
               Resume
               <select
                 value={selectedResumeId}
-                onChange={(event) => setSelectedResumeId(event.target.value)}
+                onChange={(event) => {
+                  setSelectedResumeId(event.target.value)
+                  setMatchResult(null)
+                }}
               >
                 <option value="">Select resume...</option>
                 {resumeOptions.map((option) => (
@@ -412,7 +510,15 @@ function App() {
             </label>
             <label>
               Job
-              <select value={selectedJobId} onChange={(event) => setSelectedJobId(event.target.value)}>
+              <select
+                value={selectedJobId}
+                onChange={(event) => {
+                  setSelectedJobId(event.target.value)
+                  setMatchResult(null)
+                  setCandidates([])
+                  setExpandedMatchId(null)
+                }}
+              >
                 <option value="">Select job...</option>
                 {jobOptions.map((option) => (
                   <option key={option.id} value={option.id}>
@@ -434,6 +540,7 @@ function App() {
 
           {matchResult ? (
             <div className="result">
+              <span className="eyebrow">Current assessment</span>
               <h3>
                 {matchResult.candidate_name || 'Candidate'} vs {matchResult.job_title || 'Job'}
               </h3>
@@ -549,22 +656,25 @@ function App() {
           ) : null}
         </section>
 
-        <section className="card full-width">
+        <section className="card full-width local-candidates">
           <div className="split-header">
-            <h2>Ranked Candidates</h2>
+            <div>
+              <h2>Local Candidates</h2>
+              <p className="section-subtitle">Saved scores for this job. Click a candidate to expand the assessment.</p>
+            </div>
             <button type="button" onClick={onLoadCandidates} disabled={candidatesLoading}>
               {candidatesLoading ? (
                 <>
                   <LoadingSpinner inline /> Refreshing...
                 </>
               ) : (
-                'Load Candidates'
+                'Refresh Candidates'
               )}
             </button>
           </div>
 
           {candidates.length === 0 ? (
-            <p className="muted">No candidates loaded yet. Run a match first, then refresh rankings.</p>
+            <p className="muted">{candidatesLoading ? 'Loading saved scores…' : 'No previous candidate scores for this job.'}</p>
           ) : (
             <div className="table-wrap">
               <table>
@@ -580,17 +690,39 @@ function App() {
                   </tr>
                 </thead>
                 <tbody>
-                  {candidates.map((candidate) => (
-                    <tr key={candidate.match_id}>
-                      <td>#{candidate.rank}</td>
-                      <td>{candidate.candidate_name || 'Unknown'}</td>
-                      <td>{candidate.email || '-'}</td>
-                      <td>{candidate.scores.overall.toFixed(2)}%</td>
-                      <td>{candidate.scores.ats.toFixed(2)}%</td>
-                      <td>{candidate.scores.semantic.toFixed(2)}%</td>
-                      <td>{candidate.scores.transferable.toFixed(2)}%</td>
-                    </tr>
-                  ))}
+                  {candidates.map((candidate) => {
+                    const isExpanded = expandedMatchId === candidate.match_id
+                    return (
+                      <Fragment key={candidate.match_id}>
+                        <tr
+                          className="candidate-row"
+                          tabIndex="0"
+                          role="button"
+                          aria-expanded={isExpanded}
+                          onClick={() => setExpandedMatchId(isExpanded ? null : candidate.match_id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              setExpandedMatchId(isExpanded ? null : candidate.match_id)
+                            }
+                          }}
+                        >
+                          <td>#{candidate.rank}</td>
+                          <td>{candidate.candidate_name || 'Unknown'}</td>
+                          <td>{candidate.email || '-'}</td>
+                          <td><strong>{candidate.scores.overall.toFixed(2)}%</strong></td>
+                          <td>{candidate.scores.ats.toFixed(2)}%</td>
+                          <td>{candidate.scores.semantic.toFixed(2)}%</td>
+                          <td>{candidate.scores.transferable.toFixed(2)}% <span className="expand-icon">⌄</span></td>
+                        </tr>
+                        {isExpanded && (
+                          <tr className="candidate-detail-row">
+                            <td colSpan="7"><MatchDetails result={candidate} compact /></td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
