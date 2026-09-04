@@ -7,6 +7,7 @@ Claude: handles any job description format and length
 """
 import asyncio
 import json
+import logging
 import re
 from typing import Any, Dict, List
 
@@ -15,6 +16,7 @@ from app.config import get_settings
 from app.services.claude_client import call_claude
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 _OLLAMA_URL = "http://localhost:11434/api/chat"
 _OLLAMA_MODEL = "llama3.2"
 
@@ -117,10 +119,12 @@ Rules:
 - Examples: java, spring boot, aws, kafka, postgresql, docker, kubernetes"""
 
     try:
-        content = _ollama_call(prompt)
+        if not settings.ANTHROPIC_API_KEY:
+            raise RuntimeError("ANTHROPIC_API_KEY is not configured.")
+        content = call_claude(prompt, max_tokens=1500)
         return json.loads(_clean_json(content))
-    except Exception as e:
-        print(f"[Ollama Resume Extract ERROR] {e}")
+    except Exception:
+        logger.exception("Claude resume extraction failed; using fallback extraction")
         return {
             "skills": _extract_skills_fallback(text),
             "name": _extract_name_fallback(text),
@@ -167,12 +171,21 @@ Rules:
 - required_skills: must-have, required, essential
 - nice_to_have_skills: preferred, bonus, plus, desired"""
 
+    if not settings.ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not configured on the server.")
+
     try:
         content = call_claude(prompt, max_tokens=1000)
-        return json.loads(_clean_json(content))
-    except Exception as e:
-        print(f"[Claude Job Extract ERROR] {e}")
-        return {}
+        result = json.loads(_clean_json(content))
+    except Exception as exc:
+        logger.exception("Claude job extraction failed")
+        raise RuntimeError("The AI job extraction service failed.") from exc
+
+    if not result.get("required_skills"):
+        logger.warning("Claude job extraction returned no required skills")
+        raise RuntimeError("No required skills could be extracted from this job posting.")
+
+    return result
 
 
 # ─── Transferable skills analysis (Ollama) ───────────────────────────────────

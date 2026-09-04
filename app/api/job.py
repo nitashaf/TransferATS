@@ -29,7 +29,10 @@ async def create_job(job_data: JobCreate, db: AsyncSession = Depends(get_db)):
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc))
 
-        extracted = await extract_job_details(scraped_text)
+        try:
+            extracted = await extract_job_details(scraped_text)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         title = title or extracted.get("title") or job_data.url
         description = description or extracted.get("description") or scraped_text[:1000]
         required_skills = _merge(required_skills, extracted.get("required_skills", []))
@@ -38,7 +41,10 @@ async def create_job(job_data: JobCreate, db: AsyncSession = Depends(get_db)):
 
     # ── Mode 2: raw text ─────────────────────────────────────────────────────
     elif job_data.raw_text:
-        extracted = await extract_job_details(job_data.raw_text) or {}
+        try:
+            extracted = await extract_job_details(job_data.raw_text)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
         title = title or extracted.get("title") or "Untitled Position"
         description = description or extracted.get("description") or job_data.raw_text[:1000]
         required_skills = _merge(required_skills, extracted.get("required_skills", []))

@@ -173,22 +173,8 @@ button:disabled {
   border-top: 1px solid #e5e7eb;
 }
 
-.match-card.full-width .result {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px 18px;
-}
-
-.match-card.full-width .result > h3,
-.match-card.full-width .result > .eyebrow,
-.match-card.full-width .result > .judge-summary,
-.match-card.full-width .result > .evaluation-list,
-.match-card.full-width .result > .skills-grid {
-  grid-column: 1 / -1;
-}
-
-.match-card.full-width .result > h3 {
-  margin: -8px 0 2px;
+.match-results > h2 {
+  margin: 4px 0 14px;
 }
 
 .eyebrow {
@@ -508,7 +494,6 @@ td {
     grid-template-columns: 1fr;
   }
 
-  .match-card.full-width .result,
   .score-grid {
     grid-template-columns: 1fr;
   }

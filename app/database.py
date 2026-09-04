@@ -34,6 +34,13 @@ async def init_db():
             "END IF; END $$"
         ))
         await conn.execute(text(
+            "DO $$ BEGIN IF EXISTS ("
+            "SELECT 1 FROM information_schema.columns "
+            "WHERE table_name = 'resumes' AND column_name = 'organization_id'"
+            ") THEN ALTER TABLE resumes ALTER COLUMN organization_id DROP NOT NULL; "
+            "END IF; END $$"
+        ))
+        await conn.execute(text(
             "DELETE FROM matches older USING matches newer "
             "WHERE older.resume_id = newer.resume_id AND older.job_id = newer.job_id "
             "AND (older.created_at, older.id) < (newer.created_at, newer.id)"

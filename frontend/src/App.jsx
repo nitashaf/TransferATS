@@ -488,7 +488,7 @@ function App() {
           ) : null}
         </section>
 
-        <section className={`card match-card ${matchResult ? 'full-width' : ''}`}>
+        <section className="card match-card">
           <h2>3) Match & Scores</h2>
           <form onSubmit={onRunMatch} className="stack">
             <label>
@@ -538,123 +538,17 @@ function App() {
             </button>
           </form>
 
-          {matchResult ? (
-            <div className="result">
-              <span className="eyebrow">Current assessment</span>
-              <h3>
-                {matchResult.candidate_name || 'Candidate'} vs {matchResult.job_title || 'Job'}
-              </h3>
-              <ScoreBar label="Overall Score" value={matchResult.overall_score} />
-              <ScoreBar label="ATS Score" value={matchResult.ats_score} />
-              <ScoreBar label="LLM Judge Score" value={matchResult.llm_judge_score} />
-              <ScoreBar label="Semantic Score" value={matchResult.semantic_score} />
-              <ScoreBar label="Transferable Score" value={matchResult.transferable_score} />
-
-              <div className="judge-summary">
-                <div className="recommendation-row">
-                  <h4>LLM Judgment</h4>
-                  <span
-                    className={`recommendation recommendation-${String(
-                      matchResult.hiring_recommendation || 'MAYBE',
-                    ).toLowerCase()}`}
-                  >
-                    {formatLabel(matchResult.hiring_recommendation || 'MAYBE')}
-                  </span>
-                </div>
-                {matchResult.overall_assessment ? (
-                  <p>{matchResult.overall_assessment}</p>
-                ) : (
-                  <p className="muted">No overall LLM assessment was returned.</p>
-                )}
-              </div>
-
-              {(matchResult.llm_evaluations || []).length > 0 ? (
-                <div className="evaluation-list">
-                  <h4>Requirement-by-requirement judgment</h4>
-                  {(matchResult.llm_evaluations || []).map((evaluation, index) => (
-                    <article
-                      className="evaluation-item"
-                      key={`${evaluation.skill || 'requirement'}-${index}`}
-                    >
-                      <div className="evaluation-header">
-                        <strong>{evaluation.skill || 'Unnamed requirement'}</strong>
-                        <span className={`evaluation-status ${getEvaluationTone(evaluation.status)}`}>
-                          {formatLabel(evaluation.status || 'NOT_MET')}
-                        </span>
-                      </div>
-                      {evaluation.explanation ? <p>{evaluation.explanation}</p> : null}
-                      {evaluation.evidence ? (
-                        <blockquote>Evidence: “{evaluation.evidence}”</blockquote>
-                      ) : null}
-                      {evaluation.confidence ? (
-                        <small className="muted">
-                          Confidence: {formatLabel(evaluation.confidence)}
-                        </small>
-                      ) : null}
-                    </article>
-                  ))}
-                </div>
-              ) : null}
-
-              <div className="skills-grid">
-                <div>
-                  <h4>Matched Skills</h4>
-                  <div className="chip-group">
-                    {(matchResult.matched_skills || []).length > 0 ? (
-                      (matchResult.matched_skills || []).map((skill) => (
-                        <span key={`matched-${skill}`} className="skill-chip matched">
-                          {skill}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="muted">No matched skills detected.</span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <h4>Missing Skills</h4>
-                  <div className="chip-group">
-                    {(matchResult.missing_skills || []).length > 0 ? (
-                      (matchResult.missing_skills || []).map((skill) => (
-                        <span key={`missing-${skill}`} className="skill-chip missing">
-                          {skill}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="muted">No missing skills.</span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <h4>Transferable Skills</h4>
-                  <div className="transferable-list">
-                    {(matchResult.transferable_skills || []).length > 0 ? (
-                      (matchResult.transferable_skills || []).map((item, index) => (
-                        <div
-                          className="transferable-item"
-                          key={`${item.missing_skill || item.skill || index}-${index}`}
-                        >
-                          <strong>{item.missing_skill || item.skill || 'Transferable skill'}</strong>
-                          {item.transferable_from ? (
-                            <span> from {item.transferable_from}</span>
-                          ) : null}
-                          {item.confidence ? (
-                            <span className="muted"> ({formatLabel(item.confidence)} confidence)</span>
-                          ) : null}
-                          {item.explanation || item.reason ? (
-                            <p>{item.explanation || item.reason}</p>
-                          ) : null}
-                        </div>
-                      ))
-                    ) : (
-                      <span className="muted">No transferable skills detected.</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
         </section>
+
+        {matchResult ? (
+          <section className="card full-width match-results">
+            <span className="eyebrow">Current assessment</span>
+            <h2>
+              {matchResult.candidate_name || 'Candidate'} vs {matchResult.job_title || 'Job'}
+            </h2>
+            <MatchDetails result={matchResult} />
+          </section>
+        ) : null}
 
         <section className="card full-width local-candidates">
           <div className="split-header">
